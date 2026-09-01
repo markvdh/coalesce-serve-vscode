@@ -1,0 +1,121 @@
+{
+  "name": "coalesce-serve-vscode",
+  "displayName": "Coalesce Local UI",
+  "description": "Run `coa serve` in the background and open the Coalesce UI in an editor tab instead of an external browser.",
+  "version": "0.1.0",
+  "license": "MIT",
+  "publisher": "local",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./extension.js",
+  "scripts": {
+    "test": "node test/serve.test.js"
+  },
+  "activationEvents": [],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "coalesceServe",
+          "title": "Coalesce Local UI",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "coalesceServe": [
+        {
+          "id": "coalesceServe.control",
+          "name": "Local UI"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "coalesceServe.control",
+        "contents": "Serve this Coalesce workspace locally and open the UI in an editor tab.\n\n[$(play) Open Coalesce UI](command:coalesceServe.open)\n\nThe server is started with `coa serve --no-open` and is stopped again when you close the tab.",
+        "when": "!coalesceServe.running"
+      },
+      {
+        "view": "coalesceServe.control",
+        "contents": "The local Coalesce UI is running.\n\n[$(preview) Show tab](command:coalesceServe.open)\n[$(debug-restart) Restart](command:coalesceServe.restart)\n[$(debug-stop) Stop](command:coalesceServe.stop)\n[$(output) Show log](command:coalesceServe.showLog)",
+        "when": "coalesceServe.running"
+      }
+    ],
+    "commands": [
+      {
+        "command": "coalesceServe.open",
+        "title": "Coalesce: Open Local UI",
+        "icon": "$(play)"
+      },
+      {
+        "command": "coalesceServe.stop",
+        "title": "Coalesce: Stop Local UI Server",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "coalesceServe.restart",
+        "title": "Coalesce: Restart Local UI Server",
+        "icon": "$(debug-restart)"
+      },
+      {
+        "command": "coalesceServe.showLog",
+        "title": "Coalesce: Show Local UI Server Log",
+        "icon": "$(output)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "coalesceServe.open",
+          "when": "view == coalesceServe.control && !coalesceServe.running",
+          "group": "navigation@1"
+        },
+        {
+          "command": "coalesceServe.restart",
+          "when": "view == coalesceServe.control && coalesceServe.running",
+          "group": "navigation@1"
+        },
+        {
+          "command": "coalesceServe.stop",
+          "when": "view == coalesceServe.control && coalesceServe.running",
+          "group": "navigation@2"
+        },
+        {
+          "command": "coalesceServe.showLog",
+          "when": "view == coalesceServe.control",
+          "group": "navigation@3"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Coalesce Local UI",
+      "properties": {
+        "coalesceServe.coaPath": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Path to the `coa` executable. Leave empty to auto-detect: the Coalesce Desktop shim (`~/.coalesce/desktop/coa`) is preferred, otherwise `coa` from `PATH`."
+        },
+        "coalesceServe.port": {
+          "type": "number",
+          "default": 8082,
+          "description": "Preferred port for `coa serve`. If it is already taken, the next free port is used."
+        },
+        "coalesceServe.workspaceFolder": {
+          "type": "string",
+          "default": "",
+          "description": "Workspace folder (name or absolute path) to serve. Leave empty to use the folder containing data.yml, or the first folder."
+        },
+        "coalesceServe.showStatusBarItem": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a status bar item while the local UI server is running."
+        }
+      }
+    }
+  }
+}

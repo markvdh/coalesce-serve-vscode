@@ -1,0 +1,78 @@
+# Coalesce Local UI (VS Code)
+
+A tiny, dependency-free VS Code extension that adds a **Coalesce** icon to the
+primary side bar with one button. Pressing it:
+
+1. starts `coa serve --no-open` in the background for the current workspace
+   (reusing the tab if it is already running);
+2. opens the served UI in a **VS Code editor tab** instead of an external
+   browser;
+3. **stops the server** again when you close that tab.
+
+## Why `--no-open` instead of intercepting the browser
+
+`coa serve` prints a machine-readable readiness line on startup:
+
+```
+COA_SERVE_READY {"url":"http://localhost:8082#nonce=…","port":8082,"nonce":"…"}
+```
+
+So there is nothing to intercept: `--no-open` suppresses the external browser,
+the extension reads that line (the URL carries the auth nonce in its fragment)
+and loads the URL into a webview itself. Trying to hijack the browser launch via
+`$BROWSER` only works for CLIs that honour it, and would not give you a handle
+on the resulting tab to hang the shutdown off.
+
+The extension builds its own webview rather than calling the built-in
+`simpleBrowser.show`, for the same reason: it needs the `onDidDispose` event of
+the panel to know when to kill the server.
+
+## Install
+
+No build step — it is plain JavaScript with no dependencies.
+
+```sh
+ln -s ~/GitHub/coalesce-serve-vscode ~/.vscode/extensions/coalesce-serve-vscode
+```
+
+Then reload the window (`Developer: Reload Window`). For VS Code Insiders use
+`~/.vscode-insiders/extensions/`.
+
+To hack on it instead, open this folder in VS Code and press `F5` for an
+Extension Development Host.
+
+## Settings
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `coalesceServe.coaPath` | `""` | Path to `coa`. Empty auto-detects the Coalesce Desktop shim (`~/.coalesce/desktop/coa`), else `coa` from `PATH`. |
+| `coalesceServe.port` | `8082` | Preferred port. If taken, the next free port up to +49 is used. |
+| `coalesceServe.workspaceFolder` | `""` | Folder to serve. Empty picks the folder containing `data.yml`, else the first folder. |
+| `coalesceServe.showStatusBarItem` | `true` | Show a status bar item while the server runs. |
+
+## Commands
+
+- `Coalesce: Open Local UI` — start + show the tab
+- `Coalesce: Stop Local UI Server`
+- `Coalesce: Restart Local UI Server`
+- `Coalesce: Show Local UI Server Log`
+
+## Notes and limits
+
+- Uses activity-bar container id `coalesceServe`, so it coexists with the
+  separate `coalesce-vscode-extension` (which claims `coalesce`).
+- The UI is framed in a webview. That works because `coa serve` sends no
+  `X-Frame-Options` and no CSP `frame-ancestors`. If a future CLI build adds
+  either, the frame will go blank and you would need `simpleBrowser`/external
+  browser instead.
+- `asExternalUri` + `portMapping` are used so the tab also works over Remote
+  SSH / Codespaces; the `#nonce=` fragment is re-attached if the rewrite drops
+  it.
+- On Windows the process is stopped with `taskkill /T /F` because `SIGTERM`
+  does not pass through the `.cmd` shim.
+- If the server exits on its own, the tab is closed and the error is surfaced
+  with a link to the log.
+
+## License
+
+MIT
