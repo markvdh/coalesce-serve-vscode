@@ -2,6 +2,9 @@ const vscode = require('vscode');
 const fs = require('fs');
 const path = require('path');
 const { detectCoa, findFreePort, startServe, killTree } = require('./serve');
+const { CoalesceTreeProvider } = require('./profilesTree');
+const coaconfig = require('./coaconfig');
+const profiles = require('./profileCommands');
 
 /** @type {{ proc: import('child_process').ChildProcess, panel: vscode.WebviewPanel, url: string, port: number } | null} */
 let session = null;
@@ -9,6 +12,8 @@ let session = null;
 let log;
 /** @type {vscode.StatusBarItem} */
 let status;
+/** @type {CoalesceTreeProvider} */
+let tree;
 
 const config = () => vscode.workspace.getConfiguration('coalesceServe');
 
@@ -87,6 +92,7 @@ function setRunning(running) {
   } else {
     status.hide();
   }
+  tree?.refresh();
 }
 
 /** The server died on its own — tear the tab down so the two never disagree. */
@@ -118,10 +124,21 @@ async function open(context) {
   const coa = detectCoa(config().get('coaPath'));
   const preferred = config().get('port') || 8082;
 
+  let active = null;
+  try {
+    active = coaconfig.activeProfile(coaconfig.read().sections);
+  } catch {
+    /* config unreadable — coa will complain with a better message than we can */
+  }
+
   let cancelled = false;
   try {
     const started = await vscode.window.withProgress(
-      { location: vscode.ProgressLocation.Notification, title: 'Starting the local Coalesce UI…', cancellable: true },
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: `Starting the local Coalesce UI${active ? ` (profile: ${active})` : ''}…`,
+        cancellable: true,
+      },
       async (progress, token) => {
         const port = await findFreePort(preferred);
         if (port !== preferred) progress.report({ message: `port ${preferred} is taken, using ${port}` });
@@ -181,21 +198,54 @@ async function restart(context) {
 
 // ----------------------------------------------------------------- lifecycle
 
+/** Pick up profile edits made outside VS Code (or by `coa` itself). */
+function watchConfig() {
+  const configPath = coaconfig.defaultConfigPath();
+  const dir = path.dirname(configPath);
+  const base = path.basename(configPath);
+  let timer;
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    // Watch the directory, not the file: an atomic write replaces the inode.
+    const watcher = fs.watch(dir, (_event, filename) => {
+      if (filename && filename !== base) return;
+      clearTimeout(timer);
+      timer = setTimeout(() => tree?.refresh(), 200);
+    });
+    return { dispose: () => { clearTimeout(timer); watcher.close(); } };
+  } catch {
+    return { dispose: () => {} };
+  }
+}
+
 function activate(context) {
   log = vscode.window.createOutputChannel('Coalesce Local UI');
   status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+  tree = new CoalesceTreeProvider(() => session);
   setRunning(false);
 
-  const emptyTree = { getChildren: () => [], getTreeItem: (item) => item };
+  const refresh = () => tree.refresh();
+  const command = (name, handler) => vscode.commands.registerCommand(name, handler);
 
   context.subscriptions.push(
     log,
     status,
-    vscode.window.registerTreeDataProvider('coalesceServe.control', emptyTree),
-    vscode.commands.registerCommand('coalesceServe.open', () => open(context)),
-    vscode.commands.registerCommand('coalesceServe.stop', () => stop()),
-    vscode.commands.registerCommand('coalesceServe.restart', () => restart(context)),
-    vscode.commands.registerCommand('coalesceServe.showLog', () => log.show(true)),
+    watchConfig(),
+    vscode.window.registerTreeDataProvider('coalesceServe.control', tree),
+
+    command('coalesceServe.open', () => open(context)),
+    command('coalesceServe.stop', () => stop()),
+    command('coalesceServe.restart', () => restart(context)),
+    command('coalesceServe.showLog', () => log.show(true)),
+
+    command('coalesceServe.refresh', refresh),
+    command('coalesceServe.newProfile', () => profiles.openProfileForm(context, null, refresh)),
+    command('coalesceServe.editProfile', (node) => profiles.openProfileForm(context, node, refresh)),
+    command('coalesceServe.activateProfile', (node) => profiles.activateProfile(node, refresh, () => session)),
+    command('coalesceServe.deleteProfile', (node) => profiles.deleteProfile(node, refresh)),
+    command('coalesceServe.editCloudField', (node) => profiles.editCloudField(node, refresh)),
+    command('coalesceServe.openConfigFile', () => profiles.revealConfig()),
+
     { dispose: () => session && killTree(session.proc) },
   );
 }

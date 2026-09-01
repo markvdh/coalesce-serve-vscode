@@ -9,6 +9,53 @@ primary side bar with one button. Pressing it:
    browser;
 3. **stops the server** again when you close that tab.
 
+It also manages the profiles in `~/.coa/config`: list them, switch the active
+one, edit them in a form, and set the Coalesce API key.
+
+## Profiles
+
+`coa serve` accepts no `--profile` flag and ignores `--config` — its option set
+is literally `{dir, port, open}`, and the profile is resolved from
+`~/.coa/config` alone. So "switch profile" here means **copy the chosen profile
+into `[default]`**, which makes the composite profile exactly that profile with
+nothing inherited from whatever `[default]` used to hold.
+
+The sidebar shows:
+
+```
+LOCAL UI
+  ▶ Open Coalesce UI
+COALESCE CLOUD                    (of the active profile)
+  Coalesce domain    https://mark-sandbox…        ✎
+  Coalesce API key   ••••••••                     ✎
+  Environment ID     12                           ✎
+PROFILES
+  ✔ dela-poc         Databricks · active     ✓ ✎ 🗑
+  ○ mark_demo        Snowflake               ✓ ✎ 🗑
+  + New profile…
+```
+
+Safety rules the code follows:
+
+- Every write takes a timestamped `~/.coa/config.bak.<iso>` first, last 10 kept.
+- Writes are atomic (temp file + rename in the same directory) and the file
+  stays `0600`.
+- Sections the form did not touch are carried through **verbatim**, comments
+  included — the parser is line-based rather than a lossy round-trip.
+- If `[default]` matches no saved profile, activating anything first prompts you
+  to save those settings under a name. Cancel the prompt and nothing is written.
+- Existing secrets are never sent into the webview. Their inputs render empty
+  with an "unchanged" placeholder; a blank secret on save keeps the stored
+  value. To *clear* one, edit `~/.coa/config` directly.
+- Changing a profile's platform drops the previous platform's keys, so a
+  Snowflake→Databricks switch leaves no stranded `snowflake*` entries.
+
+Platform fields come from `coa describe config` (CLI 7.41): Snowflake
+(Basic / KeyPair), Databricks (Token / OAuth M2M), BigQuery (service account).
+
+Because `coa serve` reads the config once at startup, switching profiles while
+the server runs offers to restart it.
+
 ## Why `--no-open` instead of intercepting the browser
 
 `coa serve` prints a machine-readable readiness line on startup:
@@ -56,6 +103,19 @@ Extension Development Host.
 - `Coalesce: Stop Local UI Server`
 - `Coalesce: Restart Local UI Server`
 - `Coalesce: Show Local UI Server Log`
+- `Coalesce: New Profile…`
+- `Coalesce: Reload Profiles`
+- `Coalesce: Open ~/.coa/config`
+
+Activate / edit / delete act on a sidebar row, so they are inline buttons
+rather than palette entries.
+
+## Tests
+
+```sh
+npm test        # ~/.coa/config model: parsing, activation, merges, atomic writes
+npm run test:e2e   # spawns a real `coa serve`, asserts the handshake and the kill
+```
 
 ## Notes and limits
 

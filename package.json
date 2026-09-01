@@ -14,7 +14,8 @@
   "icon": "media/icon.png",
   "main": "./extension.js",
   "scripts": {
-    "test": "node test/serve.test.js"
+    "test": "node test/coaconfig.test.js",
+    "test:e2e": "node test/serve.test.js"
   },
   "activationEvents": [],
   "contributes": {
@@ -35,18 +36,6 @@
         }
       ]
     },
-    "viewsWelcome": [
-      {
-        "view": "coalesceServe.control",
-        "contents": "Serve this Coalesce workspace locally and open the UI in an editor tab.\n\n[$(play) Open Coalesce UI](command:coalesceServe.open)\n\nThe server is started with `coa serve --no-open` and is stopped again when you close the tab.",
-        "when": "!coalesceServe.running"
-      },
-      {
-        "view": "coalesceServe.control",
-        "contents": "The local Coalesce UI is running.\n\n[$(preview) Show tab](command:coalesceServe.open)\n[$(debug-restart) Restart](command:coalesceServe.restart)\n[$(debug-stop) Stop](command:coalesceServe.stop)\n[$(output) Show log](command:coalesceServe.showLog)",
-        "when": "coalesceServe.running"
-      }
-    ],
     "commands": [
       {
         "command": "coalesceServe.open",
@@ -67,9 +56,62 @@
         "command": "coalesceServe.showLog",
         "title": "Coalesce: Show Local UI Server Log",
         "icon": "$(output)"
+      },
+      {
+        "command": "coalesceServe.refresh",
+        "title": "Coalesce: Reload Profiles",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "coalesceServe.newProfile",
+        "title": "Coalesce: New Profile…",
+        "icon": "$(add)"
+      },
+      {
+        "command": "coalesceServe.editProfile",
+        "title": "Coalesce: Edit Profile…",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "coalesceServe.activateProfile",
+        "title": "Coalesce: Set Profile As Active",
+        "icon": "$(check)"
+      },
+      {
+        "command": "coalesceServe.deleteProfile",
+        "title": "Coalesce: Delete Profile",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "coalesceServe.editCloudField",
+        "title": "Coalesce: Edit Cloud Setting…",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "coalesceServe.openConfigFile",
+        "title": "Coalesce: Open ~/.coa/config",
+        "icon": "$(go-to-file)"
       }
     ],
     "menus": {
+      "commandPalette": [
+        {
+          "command": "coalesceServe.editProfile",
+          "when": "false"
+        },
+        {
+          "command": "coalesceServe.activateProfile",
+          "when": "false"
+        },
+        {
+          "command": "coalesceServe.deleteProfile",
+          "when": "false"
+        },
+        {
+          "command": "coalesceServe.editCloudField",
+          "when": "false"
+        }
+      ],
       "view/title": [
         {
           "command": "coalesceServe.open",
@@ -87,9 +129,51 @@
           "group": "navigation@2"
         },
         {
-          "command": "coalesceServe.showLog",
+          "command": "coalesceServe.newProfile",
           "when": "view == coalesceServe.control",
           "group": "navigation@3"
+        },
+        {
+          "command": "coalesceServe.refresh",
+          "when": "view == coalesceServe.control",
+          "group": "navigation@4"
+        },
+        {
+          "command": "coalesceServe.showLog",
+          "when": "view == coalesceServe.control",
+          "group": "1_more@1"
+        },
+        {
+          "command": "coalesceServe.openConfigFile",
+          "when": "view == coalesceServe.control",
+          "group": "1_more@2"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "coalesceServe.activateProfile",
+          "when": "view == coalesceServe.control && viewItem == profile",
+          "group": "inline@1"
+        },
+        {
+          "command": "coalesceServe.editProfile",
+          "when": "view == coalesceServe.control && viewItem =~ /^profile/",
+          "group": "inline@2"
+        },
+        {
+          "command": "coalesceServe.deleteProfile",
+          "when": "view == coalesceServe.control && viewItem =~ /^profile/",
+          "group": "inline@3"
+        },
+        {
+          "command": "coalesceServe.editCloudField",
+          "when": "view == coalesceServe.control && viewItem == cloudField",
+          "group": "inline@1"
+        },
+        {
+          "command": "coalesceServe.newProfile",
+          "when": "view == coalesceServe.control && viewItem == group.profiles",
+          "group": "inline@1"
         }
       ]
     },
