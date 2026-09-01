@@ -65,7 +65,12 @@ async function createPanel(context, rawUrl, port) {
     localResourceRoots: [],
     portMapping: [{ webviewPort: port, extensionHostPort: port }],
   });
-  panel.iconPath = vscode.Uri.joinPath(context.extensionUri, 'media', 'icon.svg');
+  // Panel icons are drawn as-is (not masked like activity bar icons), so give
+  // each theme the variant with the right ink colour.
+  panel.iconPath = {
+    light: vscode.Uri.joinPath(context.extensionUri, 'media', 'logo-light-theme.svg'),
+    dark: vscode.Uri.joinPath(context.extensionUri, 'media', 'logo-dark-theme.svg'),
+  };
   panel.webview.html = panelHtml(external.toString(true));
   return panel;
 }

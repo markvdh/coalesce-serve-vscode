@@ -73,6 +73,22 @@ Extension Development Host.
 - If the server exits on its own, the tab is closed and the error is surfaced
   with a link to the log.
 
+## Icons
+
+The Coalesce mark in `media/` is borrowed from
+[`coalesce-vscode-extension`](https://github.com/jessemarshall/coalesce-vscode-extension)
+(MIT, Jesse Marshall):
+
+| File | Source | Used for |
+| --- | --- | --- |
+| `icon.svg` | `media/icons/coalesce.svg` | activity bar (`fill="currentColor"`, VS Code masks it) |
+| `logo-light-theme.svg` | `media/icons/coalesce-icon-dark.svg` | editor tab icon, light themes (`#1B1B1F` ink) |
+| `logo-dark-theme.svg` | `media/icons/coalesce-icon-light.svg` | editor tab icon, dark themes (white ink) |
+| `icon.png` | `media/icon.png` | extension gallery icon (256×256) |
+
+Note the swap in the two tab icons: upstream names them after the ink colour,
+VS Code's `iconPath` names them after the theme they are shown in.
+
 ## License
 
 MIT
