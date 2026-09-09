@@ -14,7 +14,7 @@
   "icon": "media/icon.png",
   "main": "./extension.js",
   "scripts": {
-    "test": "node test/coaconfig.test.js",
+    "test": "node test/coaconfig.test.js && node test/serve.unit.test.js",
     "test:e2e": "node test/serve.test.js"
   },
   "activationEvents": [],

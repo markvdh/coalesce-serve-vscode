@@ -113,7 +113,7 @@ rather than palette entries.
 ## Tests
 
 ```sh
-npm test        # ~/.coa/config model: parsing, activation, merges, atomic writes
+npm test        # ~/.coa/config model, plus coa resolution and failure messages
 npm run test:e2e   # spawns a real `coa serve`, asserts the handshake and the kill
 ```
 
@@ -121,6 +121,13 @@ npm run test:e2e   # spawns a real `coa serve`, asserts the handshake and the ki
 
 - Uses activity-bar container id `coalesceServe`, so it coexists with the
   separate `coalesce-vscode-extension` (which claims `coalesce`).
+- Coalesce Desktop installs its shim on launch, and the CLI behind it reports
+  version `0.0.0-ci`. Run on its own it tries to download
+  `coa-ui-0.0.0-ci.zip`, gets an HTTP 404 and exits — so `coa serve` breaks
+  once Desktop has been started. The app ships the matching UI next to its CLI
+  entry point, so the extension sets `COALESCE_UI_PATH` to that directory
+  whenever it resolves to the shim. If the app has no usable copy, the
+  notification suggests quitting Coalesce Desktop and the log has the detail.
 - The UI is framed in a webview. That works because `coa serve` sends no
   `X-Frame-Options` and no CSP `frame-ancestors`. If a future CLI build adds
   either, the frame will go blank and you would need `simpleBrowser`/external

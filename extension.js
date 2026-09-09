@@ -178,11 +178,15 @@ async function open(context) {
   } catch (err) {
     if (cancelled) return;
     const hint = err.code === 'ENOENT' ? ` Could not run "${coa}" — set \`coalesceServe.coaPath\`.` : '';
-    const choice = await vscode.window.showErrorMessage(
-      `Local Coalesce UI failed to start: ${err.message}.${hint}`,
-      'Show log',
-    );
-    if (choice) log.show(true);
+    const message = `Local Coalesce UI failed to start: ${err.message.replace(/\.$/, '')}.${hint}`;
+    // Only offer the settings shortcut when the message actually asks for it.
+    const actions = message.includes('coalesceServe.coaPath') ? ['Open settings', 'Show log'] : ['Show log'];
+    const choice = await vscode.window.showErrorMessage(message, ...actions);
+    if (choice === 'Open settings') {
+      vscode.commands.executeCommand('workbench.action.openSettings', 'coalesceServe.coaPath');
+    } else if (choice === 'Show log') {
+      log.show(true);
+    }
   }
 }
 
