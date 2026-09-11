@@ -9,41 +9,90 @@ primary side bar with one button. Pressing it:
    browser;
 3. **stops the server** again when you close that tab.
 
-It also manages the profiles in `~/.coa/config`: list them, switch the active
-one, edit them in a form, and set the Coalesce API key.
+It also manages the profiles in `~/.coa/config`: list them, pick the one this
+repo uses, edit them in a form, and set the Coalesce API key.
+
+## The workspace must be initialised
+
+The local UI only starts in a folder that has a **`workspace.yml`** — the
+per-repo file holding the local location→database/schema mappings that
+`coa serve` renders against. Without it the sidebar shows
+
+```
+LOCAL UI
+  ⚠ Workspace not initialised     no workspace.yml
+  ▷ Run `coa init`…
+```
+
+and pressing the run button explains the same thing with a **Run coa init**
+button, which opens a terminal in that folder (`coa init` is interactive, so it
+is handed to a terminal rather than spawned headless). Multi-root workspaces
+prefer the folder that has a `workspace.yml`, then one with `data.yml`, then the
+first folder — `coalesceServe.workspaceFolder` overrides that.
 
 ## Profiles
 
-`coa serve` accepts no `--profile` flag and ignores `--config` — its option set
-is literally `{dir, port, open}`, and the profile is resolved from
-`~/.coa/config` alone. So "switch profile" here means **copy the chosen profile
-into `[default]`**, which makes the composite profile exactly that profile with
-nothing inherited from whatever `[default]` used to hold.
+The selected profile is recorded **in the repo's `workspace.yml`**, as a
+top-level key:
+
+```yaml
+profile: mark_demo
+locations:
+  TARGET:
+    database: DEV_DB
+    schema: MARK
+```
+
+`coa` resolves it from there (`coa doctor` reports `profile: mark_demo
+(workspace.yml)`), so switching profile is a one-line edit to that file and
+different repos can use different profiles at the same time. Nothing is ever
+copied into `[default]` — that section is coa's own fallback, not a mirror of
+the selected profile.
 
 The sidebar shows:
 
 ```
 LOCAL UI
-  ▶ Open Coalesce UI
-COALESCE CLOUD                    (of the active profile)
+  ▶ Open Coalesce UI                          mark_demo
+COALESCE CLOUD                                mark_demo
   Coalesce domain    https://mark-sandbox…        ✎
   Coalesce API key   ••••••••                     ✎
   Environment ID     12                           ✎
 PROFILES
-  ✔ dela-poc         Databricks · active     ✓ ✎ 🗑
-  ○ mark_demo        Snowflake               ✓ ✎ 🗑
+  ● mark_demo        Snowflake · active        ✎ 🗑
+  ○ dela-poc         Databricks                ✎ 🗑
   + New profile…
 ```
 
+The **Coalesce Cloud** settings come from `~/.coa/config`, not from the repo, so
+they show up even outside an initialised workspace — with no profile selected
+the section falls back to what `coa` itself uses, `[default]`, and says so in
+the group's label. Editing a field there writes to `[default]`; that is the only
+time this extension touches that section.
+
+The circles are radio buttons: **click a row to select that profile**, which
+writes `profile: <name>` into `workspace.yml`. The inline buttons edit and
+delete. To *clear* the selection, open the profile and untick **Use this profile
+for this workspace** — that checkbox is a live view of the key, so it is ticked
+on the profile `workspace.yml` names and disabled when there is no
+`workspace.yml` to record a choice in.
+
 Safety rules the code follows:
 
-- Every write takes a timestamped `~/.coa/config.bak.<iso>` first, last 10 kept.
-- Writes are atomic (temp file + rename in the same directory) and the file
-  stays `0600`.
+- Every write to `~/.coa/config` takes a timestamped `.bak.<iso>` first, last 10
+  kept. Writes are atomic (temp file + rename in the same directory) and the
+  file stays `0600`.
+- `workspace.yml` is edited **line by line**: only the `profile:` line is
+  touched, the file's mode is preserved, and comments and mappings survive byte
+  for byte. A missing `workspace.yml` is never created — that is `coa init`'s
+  job.
 - Sections the form did not touch are carried through **verbatim**, comments
-  included — the parser is line-based rather than a lossy round-trip.
-- If `[default]` matches no saved profile, activating anything first prompts you
-  to save those settings under a name. Cancel the prompt and nothing is written.
+  included — the `~/.coa/config` parser is line-based rather than a lossy
+  round-trip.
+- Deleting the selected profile removes the `profile:` key too, so the repo is
+  never left pointing at a section that does not exist. If it happens anyway
+  (a hand edit, a colleague's name), the sidebar flags it rather than silently
+  falling back.
 - Existing secrets are never sent into the webview. Their inputs render empty
   with an "unchanged" placeholder; a blank secret on save keeps the stored
   value. To *clear* one, edit `~/.coa/config` directly.
@@ -53,8 +102,8 @@ Safety rules the code follows:
 Platform fields come from `coa describe config` (CLI 7.41): Snowflake
 (Basic / KeyPair), Databricks (Token / OAuth M2M), BigQuery (service account).
 
-Because `coa serve` reads the config once at startup, switching profiles while
-the server runs offers to restart it.
+Because `coa serve` resolves the profile once at startup, switching profiles
+while the server runs offers to restart it.
 
 ## Why `--no-open` instead of intercepting the browser
 
@@ -94,7 +143,7 @@ Extension Development Host.
 | --- | --- | --- |
 | `coalesceServe.coaPath` | `""` | Path to `coa`. Empty auto-detects the Coalesce Desktop shim (`~/.coalesce/desktop/coa`), else `coa` from `PATH`. |
 | `coalesceServe.port` | `8082` | Preferred port. If taken, the next free port up to +49 is used. |
-| `coalesceServe.workspaceFolder` | `""` | Folder to serve. Empty picks the folder containing `data.yml`, else the first folder. |
+| `coalesceServe.workspaceFolder` | `""` | Folder to serve. Empty picks the folder containing `workspace.yml`, else `data.yml`, else the first folder. |
 | `coalesceServe.showStatusBarItem` | `true` | Show a status bar item while the server runs. |
 
 ## Commands
@@ -105,15 +154,17 @@ Extension Development Host.
 - `Coalesce: Show Local UI Server Log`
 - `Coalesce: New Profile…`
 - `Coalesce: Reload Profiles`
+- `Coalesce: Initialise Workspace (coa init)`
 - `Coalesce: Open ~/.coa/config`
+- `Coalesce: Open workspace.yml`
 
-Activate / edit / delete act on a sidebar row, so they are inline buttons
-rather than palette entries.
+Select / edit / delete act on a sidebar row: selecting is the row click, edit
+and delete are inline buttons, so none of them are palette entries.
 
 ## Tests
 
 ```sh
-npm test        # ~/.coa/config model, plus coa resolution and failure messages
+npm test        # ~/.coa/config and workspace.yml models, coa resolution, failure messages
 npm run test:e2e   # spawns a real `coa serve`, asserts the handshake and the kill
 ```
 

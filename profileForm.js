@@ -8,9 +8,14 @@ const { CLOUD_FIELDS, PLATFORMS, PLATFORM_NAMES, SECRET_KEYS, platformKindOf, au
  * with a "leave blank to keep" placeholder, and a blank secret on save means
  * "unchanged" rather than "clear".
  *
+ * The "active profile" checkbox is a live view of the repo's workspace.yml
+ * `profile:` key: ticked on the profile that key names, and clearing it on that
+ * profile unsets the key. It is disabled when the repo has no workspace.yml.
+ *
  * @param {vscode.ExtensionContext} context
- * @param {{ name?: string, entries?: Record<string,string>, existingNames: string[] }} options
- * @param {(result: {name: string, platformKind: string, authType: string, fields: Record<string,string>, activate: boolean}) => Promise<string|void>} onSave
+ * @param {{ name?: string, entries?: Record<string,string>, existingNames: string[],
+ *           active?: boolean, workspaceReady?: boolean, workspaceFile?: string|null }} options
+ * @param {(result: {name: string, platformKind: string, authType: string, fields: Record<string,string>, active: boolean}) => Promise<string|void>} onSave
  *        Return a string to report a validation error back into the form.
  */
 function showProfileForm(context, options, onSave) {
@@ -44,6 +49,9 @@ function showProfileForm(context, options, onSave) {
     values,
     secretsPresent,
     existingNames: options.existingNames,
+    active: !!options.active,
+    workspaceReady: !!options.workspaceReady,
+    workspaceFile: options.workspaceFile || null,
     platforms: PLATFORMS,
     platformNames: PLATFORM_NAMES,
     cloudFields: CLOUD_FIELDS,
@@ -162,7 +170,9 @@ function html(webview, model) {
   </fieldset>
 
   <div class="actions">
-    <label class="checkline spacer"><input type="checkbox" id="activate" /> Set as active profile after saving</label>
+    <label class="checkline spacer" id="activate-line">
+      <input type="checkbox" id="activate" /> <span id="activate-label"></span>
+    </label>
     <button class="secondary" id="cancel">Cancel</button>
     <button class="primary" id="save">Save</button>
   </div>
@@ -181,7 +191,16 @@ el('subtitle').textContent = model.isNew
   : 'Blank password fields keep the value already in ~/.coa/config.';
 el('name').value = model.name;
 if (!model.isNew) el('name').readOnly = true;
-el('activate').checked = model.isNew;
+
+// Ticked = this repo's workspace.yml names the profile. Untick to clear the key.
+el('activate').checked = model.workspaceReady && (model.active || model.isNew);
+el('activate').disabled = !model.workspaceReady;
+el('activate-label').textContent = model.workspaceReady
+  ? 'Use this profile for this workspace'
+  : 'No workspace.yml — run "coa init" to pick a profile here';
+el('activate-line').title = model.workspaceReady
+  ? 'Writes "profile: <name>" into ' + model.workspaceFile
+  : 'This folder is not set up for local development yet.';
 
 el('platform').innerHTML = model.platformNames
   .map((p) => '<option value="' + p + '">' + esc(model.platforms[p].label) + '</option>').join('');
@@ -280,7 +299,7 @@ el('save').addEventListener('click', () => {
 
   vscode.postMessage({
     type: 'save',
-    payload: { name, platformKind: state.platform, authType: state.auth, fields, activate: el('activate').checked },
+    payload: { name, platformKind: state.platform, authType: state.auth, fields, active: el('activate').checked },
   });
 });
 

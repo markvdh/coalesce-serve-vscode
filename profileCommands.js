@@ -1,9 +1,19 @@
 const vscode = require('vscode');
 const coaconfig = require('./coaconfig');
+const workspaceyml = require('./workspaceyml');
+const { detectCoa } = require('./serve');
 const { CLOUD_FIELDS, SECRET_KEYS, fieldsFor } = require('./platforms');
 const { showProfileForm } = require('./profileForm');
 
 const NAME_RE = /^[A-Za-z0-9._-]+$/;
+
+/**
+ * @typedef {{
+ *   folder: () => string|null,
+ *   refresh: () => void,
+ *   session: () => object|null,
+ * }} Deps
+ */
 
 /** Read, mutate, back up, write. Every write to ~/.coa/config goes through here. */
 function commit(mutate) {
@@ -14,63 +24,108 @@ function commit(mutate) {
   return result;
 }
 
-/** Keep [default] a byte-for-byte copy of the profile it was copied from. */
-function resyncDefault(sections, name) {
-  if (coaconfig.activeProfile(sections) === name) coaconfig.setActive(sections, name);
+// -------------------------------------------------------- workspace readiness
+
+/**
+ * The folder to act on, or null after telling the user to initialise it.
+ * Selecting a profile means writing `profile:` into workspace.yml, so without
+ * that file there is nowhere to record the choice.
+ */
+function requireWorkspace(deps) {
+  const dir = deps.folder();
+  if (!dir) {
+    vscode.window.showErrorMessage('Open a Coalesce workspace folder first.');
+    return null;
+  }
+  if (!workspaceyml.exists(dir)) {
+    reportUninitialised(dir);
+    return null;
+  }
+  return dir;
+}
+
+function reportUninitialised(dir) {
+  vscode.window
+    .showErrorMessage(
+      `\`${dir}\` has no ${workspaceyml.FILENAME}, so it is not set up for local development. Run \`coa init\` there first.`,
+      'Run coa init',
+    )
+    .then((choice) => choice === 'Run coa init' && runInit(dir));
+}
+
+/** `coa init` is interactive, so hand it to a terminal rather than spawning it headless. */
+function runInit(dir) {
+  const coa = detectCoa(vscode.workspace.getConfiguration('coalesceServe').get('coaPath'));
+  const terminal = vscode.window.createTerminal({ name: 'coa init', cwd: dir || undefined });
+  terminal.show();
+  terminal.sendText(`${/\s/.test(coa) ? `"${coa}"` : coa} init`);
 }
 
 /**
- * Copy a profile into [default]. If [default] currently holds bespoke settings,
- * save them under a name first so activation cannot lose them.
+ * Write (or, with a null name, clear) workspace.yml's `profile:` key.
+ * @returns {string|null} an error to report, or null on success.
  */
-async function activateProfile(node, refresh, session) {
+function setWorkspaceProfile(dir, name) {
+  try {
+    workspaceyml.writeProfile(dir, name);
+    return null;
+  } catch (err) {
+    return `Could not update ${workspaceyml.workspacePath(dir)}: ${err.message}`;
+  }
+}
+
+// ------------------------------------------------------------------ commands
+
+/**
+ * Record a profile as this workspace's in workspace.yml. Nothing in
+ * ~/.coa/config changes — `coa` resolves `profile:` from the repo.
+ */
+async function activateProfile(node, deps) {
   const name = node?.profileName;
   if (!name) return;
 
-  const { sections } = coaconfig.read();
-  if (coaconfig.activeProfile(sections) === name) {
-    vscode.window.showInformationMessage(`'${name}' is already the active profile.`);
+  const dir = requireWorkspace(deps);
+  if (!dir) return;
+
+  let current = null;
+  try {
+    current = workspaceyml.readProfile(dir);
+  } catch {
+    /* unreadable — the write below reports the real problem */
+  }
+  if (current === name) {
+    vscode.window.showInformationMessage(`'${name}' is already this workspace's profile.`);
     return;
   }
 
-  if (coaconfig.defaultIsOrphan(sections)) {
-    const suggestion = uniqueName(sections, 'saved-default');
-    const preserveAs = await vscode.window.showInputBox({
-      title: 'Preserve the current [default] section',
-      prompt: `[default] does not match any saved profile. Save its current settings as a named profile before overwriting it.`,
-      value: suggestion,
-      validateInput: (value) => validateName(value, sections, null),
-    });
-    if (!preserveAs) return; // cancelled — do not touch the file
-    commit((s) => coaconfig.preserveDefaultAs(s, preserveAs.trim()));
-    vscode.window.showInformationMessage(`Saved the previous [default] as '${preserveAs.trim()}'.`);
+  const failure = setWorkspaceProfile(dir, name);
+  if (failure) {
+    vscode.window.showErrorMessage(failure);
+    return;
   }
 
-  commit((s) => coaconfig.setActive(s, name));
-  refresh();
+  deps.refresh();
+  await offerRestart(deps, `'${name}' is now this workspace's profile.`);
+}
 
-  if (!session()) {
-    vscode.window.showInformationMessage(`'${name}' is now the active profile.`);
+/** `coa serve` resolves the profile once at startup, so a running server is stale. */
+async function offerRestart(deps, message) {
+  if (!deps.session()) {
+    vscode.window.showInformationMessage(message);
     return;
   }
   const choice = await vscode.window.showInformationMessage(
-    `'${name}' is now the active profile. \`coa serve\` reads the config at startup — restart it to pick this up?`,
+    `${message} \`coa serve\` reads it at startup — restart it to pick this up?`,
     'Restart',
     'Later',
   );
   if (choice === 'Restart') vscode.commands.executeCommand('coalesceServe.restart');
 }
 
-function uniqueName(sections, base) {
-  const taken = new Set(coaconfig.namedProfiles(sections));
-  if (!taken.has(base)) return base;
-  for (let i = 2; ; i++) if (!taken.has(`${base}-${i}`)) return `${base}-${i}`;
-}
-
 function validateName(value, sections, currentName) {
   const name = (value || '').trim();
   if (!name) return 'Enter a name.';
-  if (name === 'default') return "'default' is managed for you — pick another name.";
+  if (name === 'default') return "'default' is coa's base section — pick another name.";
   if (!NAME_RE.test(name)) return 'Use letters, digits, dot, dash or underscore only.';
   if (name !== currentName && coaconfig.namedProfiles(sections).includes(name)) {
     return `A profile named '${name}' already exists.`;
@@ -78,15 +133,28 @@ function validateName(value, sections, currentName) {
   return null;
 }
 
-function openProfileForm(context, node, refresh) {
+function openProfileForm(context, node, deps) {
   const { sections } = coaconfig.read();
   const name = node?.profileName;
   const section = name ? coaconfig.findSection(sections, name) : null;
   const entries = section ? coaconfig.entriesOf(section) : {};
 
+  const dir = deps.folder();
+  const workspaceReady = workspaceyml.exists(dir);
+  const selected = workspaceReady ? workspaceyml.readProfile(dir) : null;
+
   showProfileForm(
     context,
-    { name, entries, existingNames: coaconfig.namedProfiles(sections) },
+    {
+      name,
+      entries,
+      existingNames: coaconfig.namedProfiles(sections),
+      // The checkbox is a live view of workspace.yml: ticked means "this repo's
+      // profile", and clearing it on an already-selected profile unsets it.
+      active: !!name && selected === name,
+      workspaceReady,
+      workspaceFile: dir ? workspaceyml.workspacePath(dir) : null,
+    },
     async (payload) => {
       const fresh = coaconfig.read().sections;
       const error = validateName(payload.name, fresh, name);
@@ -107,19 +175,33 @@ function openProfileForm(context, node, refresh) {
       commit((s) => {
         const current = coaconfig.findSection(s, target) ? coaconfig.entriesOf(coaconfig.findSection(s, target)) : {};
         coaconfig.upsertSection(s, target, coaconfig.applyFields(current, payload.fields));
-        if (payload.activate) coaconfig.setActive(s, target);
-        else resyncDefault(s, target);
       });
 
-      refresh();
-      vscode.window.showInformationMessage(
-        payload.activate ? `Saved '${target}' and made it the active profile.` : `Saved profile '${target}'.`,
-      );
+      let note = `Saved profile '${target}'.`;
+      if (workspaceReady) {
+        const current = workspaceyml.readProfile(dir);
+        let failure = null;
+        if (payload.active && current !== target) {
+          failure = setWorkspaceProfile(dir, target);
+          note = `Saved '${target}' and made it this workspace's profile.`;
+        } else if (!payload.active && current === target) {
+          failure = setWorkspaceProfile(dir, null);
+          note = `Saved '${target}' and cleared this workspace's profile.`;
+        }
+        // The section is already written, so report the rest and keep the form open.
+        if (failure) {
+          deps.refresh();
+          return failure;
+        }
+      }
+
+      deps.refresh();
+      vscode.window.showInformationMessage(note);
     },
   );
 }
 
-async function editCloudField(node, refresh) {
+async function editCloudField(node, deps) {
   const field = CLOUD_FIELDS.find((f) => f.key === node?.fieldKey);
   if (!field || !node.profileName) return;
 
@@ -127,9 +209,11 @@ async function editCloudField(node, refresh) {
   const section = coaconfig.findSection(sections, node.profileName);
   if (!section) return;
   const entries = coaconfig.entriesOf(section);
+  // With no profile selected the sidebar shows [default], so an edit lands there.
+  const where = node.profileName === 'default' ? '[default]' : `profile '${node.profileName}'`;
 
   const value = await vscode.window.showInputBox({
-    title: `${field.label} — profile '${node.profileName}'`,
+    title: `${field.label} — ${where}`,
     prompt: field.help,
     password: !!field.secret,
     value: field.secret ? '' : entries[field.key] || '',
@@ -144,38 +228,53 @@ async function editCloudField(node, refresh) {
     if (value.trim() === '') delete current[field.key];
     else current[field.key] = value.trim();
     coaconfig.upsertSection(s, node.profileName, current);
-    resyncDefault(s, node.profileName);
   });
 
-  refresh();
+  deps.refresh();
   vscode.window.showInformationMessage(
-    value.trim() === ''
-      ? `Cleared ${field.label} on '${node.profileName}'.`
-      : `Updated ${field.label} on '${node.profileName}'.`,
+    value.trim() === '' ? `Cleared ${field.label} on ${where}.` : `Updated ${field.label} on ${where}.`,
   );
 }
 
-async function deleteProfile(node, refresh) {
+async function deleteProfile(node, deps) {
   const name = node?.profileName;
   if (!name) return;
 
-  const { sections } = coaconfig.read();
-  const wasActive = coaconfig.activeProfile(sections) === name;
-  const detail = wasActive
-    ? `It is the active profile. The copy in [default] is left in place, so coa keeps working — but nothing will be marked active.`
+  const dir = deps.folder();
+  const wasSelected = workspaceyml.exists(dir) && workspaceyml.readProfile(dir) === name;
+  const detail = wasSelected
+    ? `It is this workspace's profile, so \`profile: ${name}\` is removed from ${workspaceyml.FILENAME} too.`
     : 'A timestamped backup of ~/.coa/config is written first.';
 
   const choice = await vscode.window.showWarningMessage(`Delete profile '${name}'?`, { modal: true, detail }, 'Delete');
   if (choice !== 'Delete') return;
 
   commit((s) => coaconfig.deleteProfile(s, name));
-  refresh();
-  vscode.window.showInformationMessage(`Deleted profile '${name}'.`);
+  const failure = wasSelected ? setWorkspaceProfile(dir, null) : null;
+  deps.refresh();
+  if (failure) vscode.window.showErrorMessage(`Deleted profile '${name}', but ${failure}`);
+  else vscode.window.showInformationMessage(`Deleted profile '${name}'.`);
 }
 
 function revealConfig() {
-  const uri = vscode.Uri.file(coaconfig.defaultConfigPath());
-  return vscode.window.showTextDocument(uri, { preview: false });
+  return vscode.window.showTextDocument(vscode.Uri.file(coaconfig.defaultConfigPath()), { preview: false });
 }
 
-module.exports = { activateProfile, openProfileForm, editCloudField, deleteProfile, revealConfig, validateName, SECRET_KEYS };
+function revealWorkspaceFile(deps) {
+  const dir = requireWorkspace(deps);
+  if (!dir) return;
+  return vscode.window.showTextDocument(vscode.Uri.file(workspaceyml.workspacePath(dir)), { preview: false });
+}
+
+module.exports = {
+  activateProfile,
+  openProfileForm,
+  editCloudField,
+  deleteProfile,
+  revealConfig,
+  revealWorkspaceFile,
+  reportUninitialised,
+  runInit,
+  validateName,
+  SECRET_KEYS,
+};

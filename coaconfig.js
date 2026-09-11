@@ -4,6 +4,11 @@
  * Line-based on purpose: the file holds credentials, so an unrecognised line is
  * carried through untouched rather than dropped by a round-trip through a
  * generic parser. No `vscode` import — see test/coaconfig.test.js.
+ *
+ * Which profile is *selected* is not recorded here: it lives in the repo's
+ * workspace.yml (see workspaceyml.js). [default] is coa's own fallback section,
+ * never a copy of a named profile — it is only written when the user edits a
+ * field the sidebar is showing from it.
  */
 const fs = require('fs');
 const os = require('os');
@@ -134,38 +139,8 @@ function write(configPath, sections) {
 
 // ----------------------------------------------------------------- profiles
 
-/** `profile` is bookkeeping, not credentials — ignore it when comparing sections. */
-function comparable(entries) {
-  const { profile, ...rest } = entries;
-  return JSON.stringify(Object.entries(rest).sort());
-}
-
-/**
- * Which named profile [default] is currently a copy of.
- * @returns {string|null} null when [default] is missing, empty, or bespoke.
- */
-function activeProfile(sections) {
-  const def = findSection(sections, 'default');
-  if (!def) return null;
-  const defEntries = entriesOf(def);
-  if (Object.keys(defEntries).length === 0) return null;
-  const target = comparable(defEntries);
-  for (const name of namedProfiles(sections)) {
-    if (comparable(entriesOf(findSection(sections, name))) === target) return name;
-  }
-  return null;
-}
-
-/** True when [default] holds settings that exist in no named profile — activating would lose them. */
-function defaultIsOrphan(sections) {
-  const def = findSection(sections, 'default');
-  if (!def) return false;
-  if (Object.keys(entriesOf(def)).length === 0) return false;
-  return activeProfile(sections) === null;
-}
-
-function listProfiles(sections) {
-  const active = activeProfile(sections);
+/** @param {string|null} active the profile named in workspace.yml */
+function listProfiles(sections, active = null) {
   return namedProfiles(sections).map((name) => {
     const entries = entriesOf(findSection(sections, name));
     return { name, entries, platformKind: platformKindOf(entries), active: name === active };
@@ -180,23 +155,6 @@ function upsertSection(sections, name, entries) {
   }
   setEntries(section, entries);
   return section;
-}
-
-/** Copy a named profile verbatim into [default] — the composite is then exactly that profile. */
-function setActive(sections, name) {
-  const source = findSection(sections, name);
-  if (!source) throw new Error(`No profile named '${name}'`);
-  const { profile, ...entries } = entriesOf(source);
-  upsertSection(sections, 'default', entries);
-}
-
-/** Move the current bespoke [default] into a named profile so activation cannot lose it. */
-function preserveDefaultAs(sections, name) {
-  const def = findSection(sections, 'default');
-  if (!def) throw new Error('There is no [default] section to preserve');
-  if (findSection(sections, name)) throw new Error(`A profile named '${name}' already exists`);
-  const { profile, ...entries } = entriesOf(def);
-  upsertSection(sections, name, entries);
 }
 
 function deleteProfile(sections, name) {
@@ -233,12 +191,8 @@ module.exports = {
   read,
   write,
   backup,
-  activeProfile,
-  defaultIsOrphan,
   listProfiles,
   upsertSection,
-  setActive,
-  preserveDefaultAs,
   deleteProfile,
   applyFields,
 };

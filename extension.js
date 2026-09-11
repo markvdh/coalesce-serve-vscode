@@ -4,6 +4,7 @@ const path = require('path');
 const { detectCoa, findFreePort, startServe, killTree } = require('./serve');
 const { CoalesceTreeProvider } = require('./profilesTree');
 const coaconfig = require('./coaconfig');
+const workspaceyml = require('./workspaceyml');
 const profiles = require('./profileCommands');
 
 /** @type {{ proc: import('child_process').ChildProcess, panel: vscode.WebviewPanel, url: string, port: number } | null} */
@@ -29,8 +30,11 @@ function resolveFolder() {
     return match ? match.uri.fsPath : configured; // else treat as a literal path
   }
 
+  // Prefer a folder that is actually set up for local development, then any
+  // Coalesce repo, then whatever is open.
+  const initialised = folders.find((f) => workspaceyml.exists(f.uri.fsPath));
   const withDataYml = folders.find((f) => fs.existsSync(path.join(f.uri.fsPath, 'data.yml')));
-  return (withDataYml || folders[0]).uri.fsPath;
+  return (initialised || withDataYml || folders[0]).uri.fsPath;
 }
 
 // -------------------------------------------------------------------- webview
@@ -120,15 +124,21 @@ async function open(context) {
     vscode.window.showErrorMessage('Open a Coalesce workspace folder first.');
     return;
   }
+  // `coa serve` needs the local mappings in workspace.yml, and that is also
+  // where the profile is recorded. Without it the repo is not initialised.
+  if (!workspaceyml.exists(dir)) {
+    profiles.reportUninitialised(dir);
+    return;
+  }
 
   const coa = detectCoa(config().get('coaPath'));
   const preferred = config().get('port') || 8082;
 
   let active = null;
   try {
-    active = coaconfig.activeProfile(coaconfig.read().sections);
+    active = workspaceyml.readProfile(dir);
   } catch {
-    /* config unreadable — coa will complain with a better message than we can */
+    /* unreadable — coa will complain with a better message than we can */
   }
 
   let cancelled = false;
@@ -222,33 +232,49 @@ function watchConfig() {
   }
 }
 
+/** `coa init`, `coa doctor --fix` and hand edits all change which profile is selected. */
+function watchWorkspaceFile() {
+  const watcher = vscode.workspace.createFileSystemWatcher(`**/${workspaceyml.FILENAME}`);
+  const refresh = () => tree?.refresh();
+  watcher.onDidCreate(refresh);
+  watcher.onDidChange(refresh);
+  watcher.onDidDelete(refresh);
+  return watcher;
+}
+
 function activate(context) {
   log = vscode.window.createOutputChannel('Coalesce Local UI');
   status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
-  tree = new CoalesceTreeProvider(() => session);
+  tree = new CoalesceTreeProvider(() => session, resolveFolder);
   setRunning(false);
 
   const refresh = () => tree.refresh();
   const command = (name, handler) => vscode.commands.registerCommand(name, handler);
+  /** @type {import('./profileCommands').Deps} */
+  const deps = { folder: resolveFolder, refresh, session: () => session };
 
   context.subscriptions.push(
     log,
     status,
     watchConfig(),
+    watchWorkspaceFile(),
+    vscode.workspace.onDidChangeWorkspaceFolders(refresh),
     vscode.window.registerTreeDataProvider('coalesceServe.control', tree),
 
     command('coalesceServe.open', () => open(context)),
     command('coalesceServe.stop', () => stop()),
     command('coalesceServe.restart', () => restart(context)),
     command('coalesceServe.showLog', () => log.show(true)),
+    command('coalesceServe.initWorkspace', () => profiles.runInit(resolveFolder())),
 
     command('coalesceServe.refresh', refresh),
-    command('coalesceServe.newProfile', () => profiles.openProfileForm(context, null, refresh)),
-    command('coalesceServe.editProfile', (node) => profiles.openProfileForm(context, node, refresh)),
-    command('coalesceServe.activateProfile', (node) => profiles.activateProfile(node, refresh, () => session)),
-    command('coalesceServe.deleteProfile', (node) => profiles.deleteProfile(node, refresh)),
-    command('coalesceServe.editCloudField', (node) => profiles.editCloudField(node, refresh)),
+    command('coalesceServe.newProfile', () => profiles.openProfileForm(context, null, deps)),
+    command('coalesceServe.editProfile', (node) => profiles.openProfileForm(context, node, deps)),
+    command('coalesceServe.activateProfile', (node) => profiles.activateProfile(node, deps)),
+    command('coalesceServe.deleteProfile', (node) => profiles.deleteProfile(node, deps)),
+    command('coalesceServe.editCloudField', (node) => profiles.editCloudField(node, deps)),
     command('coalesceServe.openConfigFile', () => profiles.revealConfig()),
+    command('coalesceServe.openWorkspaceFile', () => profiles.revealWorkspaceFile(deps)),
 
     { dispose: () => session && killTree(session.proc) },
   );

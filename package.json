@@ -14,7 +14,7 @@
   "icon": "media/icon.png",
   "main": "./extension.js",
   "scripts": {
-    "test": "node test/coaconfig.test.js && node test/serve.unit.test.js",
+    "test": "node test/coaconfig.test.js && node test/workspaceyml.test.js && node test/serve.unit.test.js",
     "test:e2e": "node test/serve.test.js"
   },
   "activationEvents": [],
@@ -74,7 +74,7 @@
       },
       {
         "command": "coalesceServe.activateProfile",
-        "title": "Coalesce: Set Profile As Active",
+        "title": "Coalesce: Use Profile For This Workspace",
         "icon": "$(check)"
       },
       {
@@ -91,6 +91,16 @@
         "command": "coalesceServe.openConfigFile",
         "title": "Coalesce: Open ~/.coa/config",
         "icon": "$(go-to-file)"
+      },
+      {
+        "command": "coalesceServe.openWorkspaceFile",
+        "title": "Coalesce: Open workspace.yml",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "coalesceServe.initWorkspace",
+        "title": "Coalesce: Initialise Workspace (coa init)",
+        "icon": "$(terminal)"
       }
     ],
     "menus": {
@@ -147,23 +157,28 @@
           "command": "coalesceServe.openConfigFile",
           "when": "view == coalesceServe.control",
           "group": "1_more@2"
+        },
+        {
+          "command": "coalesceServe.openWorkspaceFile",
+          "when": "view == coalesceServe.control",
+          "group": "1_more@3"
         }
       ],
       "view/item/context": [
         {
           "command": "coalesceServe.activateProfile",
           "when": "view == coalesceServe.control && viewItem == profile",
-          "group": "inline@1"
+          "group": "0_use@1"
         },
         {
           "command": "coalesceServe.editProfile",
           "when": "view == coalesceServe.control && viewItem =~ /^profile/",
-          "group": "inline@2"
+          "group": "inline@1"
         },
         {
           "command": "coalesceServe.deleteProfile",
           "when": "view == coalesceServe.control && viewItem =~ /^profile/",
-          "group": "inline@3"
+          "group": "inline@2"
         },
         {
           "command": "coalesceServe.editCloudField",
@@ -193,7 +208,7 @@
         "coalesceServe.workspaceFolder": {
           "type": "string",
           "default": "",
-          "description": "Workspace folder (name or absolute path) to serve. Leave empty to use the folder containing data.yml, or the first folder."
+          "description": "Workspace folder (name or absolute path) to serve. Leave empty to use the folder containing workspace.yml, else the one containing data.yml, else the first folder."
         },
         "coalesceServe.showStatusBarItem": {
           "type": "boolean",
