@@ -1,5 +1,5 @@
 {
-  "name": "coalesce-serve-vscode",
+  "name": "coalesce-local-vscode",
   "displayName": "Coalesce Local UI",
   "description": "Run `coa serve` in the background and open the Coalesce UI in an editor tab instead of an external browser.",
   "version": "0.1.0",
