@@ -2,6 +2,7 @@ const vscode = require('vscode');
 const fs = require('fs');
 const path = require('path');
 const { detectCoa, findFreePort, startServe, killTree } = require('./serve');
+const { samePath } = require('./fsutil');
 const { CoalesceTreeProvider } = require('./profilesTree');
 const coaconfig = require('./coaconfig');
 const workspaceyml = require('./workspaceyml');
@@ -26,7 +27,10 @@ function resolveFolder() {
 
   const configured = config().get('workspaceFolder');
   if (configured) {
-    const match = folders.find((f) => f.name === configured || f.uri.fsPath === configured);
+    // Drive-letter and case differences are the same folder on Windows.
+    const match = folders.find(
+      (f) => f.name === configured || (path.isAbsolute(configured) && samePath(f.uri.fsPath, configured)),
+    );
     return match ? match.uri.fsPath : configured; // else treat as a literal path
   }
 

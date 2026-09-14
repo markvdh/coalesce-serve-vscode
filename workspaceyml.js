@@ -12,6 +12,8 @@
 const fs = require('fs');
 const path = require('path');
 
+const { detectEol, writeAtomic } = require('./fsutil');
+
 const FILENAME = 'workspace.yml';
 
 const PROFILE_RE = /^profile\s*:(.*)$/;
@@ -75,9 +77,11 @@ function profileOf(text) {
 /**
  * Set (or, with a falsy name, clear) the top-level `profile:` key.
  * A new key is inserted below any leading comment block, so a file header
- * stays a header.
+ * stays a header, and the file's own line ending is kept so a CRLF checkout
+ * does not come back as a whole-file diff.
  */
 function setProfile(text, name) {
+  const eol = detectEol(text);
   const trailingNewline = text === '' || text.endsWith('\n');
   const lines = text.split(/\r?\n/);
   if (trailingNewline && lines[lines.length - 1] === '') lines.pop();
@@ -93,8 +97,8 @@ function setProfile(text, name) {
     lines.splice(at, 0, `profile: ${name}`);
   }
 
-  const out = lines.join('\n');
-  return out === '' ? '' : `${out}\n`;
+  const out = lines.join(eol);
+  return out === '' ? '' : `${out}${eol}`;
 }
 
 /** @returns {string|null} */
@@ -116,9 +120,7 @@ function writeProfile(dir, name) {
   if (updated === text) return false;
 
   const mode = fs.statSync(file).mode & 0o777;
-  const tmp = `${file}.tmp.${process.pid}`;
-  fs.writeFileSync(tmp, updated, { mode });
-  fs.renameSync(tmp, file);
+  writeAtomic(file, updated, mode);
   return true;
 }
 

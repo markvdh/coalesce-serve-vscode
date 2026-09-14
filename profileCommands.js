@@ -17,10 +17,10 @@ const NAME_RE = /^[A-Za-z0-9._-]+$/;
 
 /** Read, mutate, back up, write. Every write to ~/.coa/config goes through here. */
 function commit(mutate) {
-  const { configPath, sections } = coaconfig.read();
+  const { configPath, sections, eol } = coaconfig.read();
   const result = mutate(sections);
   coaconfig.backup(configPath);
-  coaconfig.write(configPath, sections);
+  coaconfig.write(configPath, sections, eol);
   return result;
 }
 
@@ -53,12 +53,30 @@ function reportUninitialised(dir) {
     .then((choice) => choice === 'Run coa init' && runInit(dir));
 }
 
+/**
+ * Quote a command line for whatever shell VS Code opens the terminal in.
+ *
+ * The default shell is PowerShell on Windows and it will not run a quoted path
+ * without the call operator, while cmd.exe has no escape for a quote at all —
+ * so each of the three gets its own spelling rather than one POSIX guess.
+ */
+function terminalCommand(parts) {
+  const shell = (vscode.env.shell || '').toLowerCase();
+  if (/(^|[\\/])(pwsh|powershell)(\.exe)?$/.test(shell)) {
+    return `& ${parts.map((p) => `'${p.replace(/'/g, "''")}'`).join(' ')}`;
+  }
+  if (/(^|[\\/])cmd(\.exe)?$/.test(shell)) {
+    return parts.map((p) => (/[\s&|<>^()]/.test(p) ? `"${p}"` : p)).join(' ');
+  }
+  return parts.map((p) => (/[^A-Za-z0-9._\/:=-]/.test(p) ? `'${p.replace(/'/g, `'\\''`)}'` : p)).join(' ');
+}
+
 /** `coa init` is interactive, so hand it to a terminal rather than spawning it headless. */
 function runInit(dir) {
   const coa = detectCoa(vscode.workspace.getConfiguration('coalesceServe').get('coaPath'));
   const terminal = vscode.window.createTerminal({ name: 'coa init', cwd: dir || undefined });
   terminal.show();
-  terminal.sendText(`${/\s/.test(coa) ? `"${coa}"` : coa} init`);
+  terminal.sendText(terminalCommand([coa, 'init']));
 }
 
 /**
@@ -275,6 +293,7 @@ module.exports = {
   revealWorkspaceFile,
   reportUninitialised,
   runInit,
+  terminalCommand,
   validateName,
   SECRET_KEYS,
 };

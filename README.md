@@ -60,7 +60,7 @@ COALESCE CLOUD                                mark_demo
   Environment ID     12                           ✎
 PROFILES
   ● mark_demo        Snowflake · active        ✎ 🗑
-  ○ dela-poc         Databricks                ✎ 🗑
+  ○ analytics_dev    Databricks                ✎ 🗑
   + New profile…
 ```
 
@@ -105,7 +105,7 @@ Platform fields come from `coa describe config` (CLI 7.41): Snowflake
 Because `coa serve` resolves the profile once at startup, switching profiles
 while the server runs offers to restart it.
 
-## Why `--no-open` instead of intercepting the browser
+## How the tab finds the server
 
 `coa serve` prints a machine-readable readiness line on startup:
 
@@ -113,26 +113,28 @@ while the server runs offers to restart it.
 COA_SERVE_READY {"url":"http://localhost:8082#nonce=…","port":8082,"nonce":"…"}
 ```
 
-So there is nothing to intercept: `--no-open` suppresses the external browser,
-the extension reads that line (the URL carries the auth nonce in its fragment)
-and loads the URL into a webview itself. Trying to hijack the browser launch via
-`$BROWSER` only works for CLIs that honour it, and would not give you a handle
-on the resulting tab to hang the shutdown off.
-
-The extension builds its own webview rather than calling the built-in
-`simpleBrowser.show`, for the same reason: it needs the `onDidDispose` event of
-the panel to know when to kill the server.
+The extension reads that line — the URL carries the auth nonce in its fragment —
+and loads the URL into a webview itself.
 
 ## Install
 
-No build step — it is plain JavaScript with no dependencies.
+No build step — it is plain JavaScript with no dependencies. Link the folder
+into the extensions directory:
 
 ```sh
-ln -s ~/GitHub/coalesce-serve-vscode ~/.vscode/extensions/coalesce-serve-vscode
+# macOS / Linux
+ln -s ~/GitHub/coalesce-local-vscode ~/.vscode/extensions/coalesce-local-vscode
+```
+
+```powershell
+# Windows — needs Developer Mode on, or an elevated prompt
+New-Item -ItemType SymbolicLink `
+  -Path   "$env:USERPROFILE\.vscode\extensions\coalesce-local-vscode" `
+  -Target "$env:USERPROFILE\GitHub\coalesce-local-vscode"
 ```
 
 Then reload the window (`Developer: Reload Window`). For VS Code Insiders use
-`~/.vscode-insiders/extensions/`.
+`.vscode-insiders/extensions/`.
 
 To hack on it instead, open this folder in VS Code and press `F5` for an
 Extension Development Host.
@@ -141,7 +143,7 @@ Extension Development Host.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `coalesceServe.coaPath` | `""` | Path to `coa`. Empty auto-detects the Coalesce Desktop shim (`~/.coalesce/desktop/coa`), else `coa` from `PATH`. |
+| `coalesceServe.coaPath` | `""` | Path to `coa`. Empty auto-detects the Coalesce Desktop shim (`~/.coalesce/desktop/coa`, or `coa.cmd`/`.exe`/`.bat` on Windows), else `coa` from `PATH`. |
 | `coalesceServe.port` | `8082` | Preferred port. If taken, the next free port up to +49 is used. |
 | `coalesceServe.workspaceFolder` | `""` | Folder to serve. Empty picks the folder containing `workspace.yml`, else `data.yml`, else the first folder. |
 | `coalesceServe.showStatusBarItem` | `true` | Show a status bar item while the server runs. |
@@ -168,6 +170,11 @@ npm test        # ~/.coa/config and workspace.yml models, coa resolution, failur
 npm run test:e2e   # spawns a real `coa serve`, asserts the handshake and the kill
 ```
 
+The suite runs on macOS, Linux and Windows. The Windows-only helpers (`PATHEXT`
+resolution, cmd.exe quoting) are pure functions and are asserted on every host,
+so a Mac catches a regression in them; the mode and case-sensitivity
+assertions ask the host for its own answer.
+
 ## Notes and limits
 
 - Uses activity-bar container id `coalesceServe`, so it coexists with the
@@ -179,6 +186,9 @@ npm run test:e2e   # spawns a real `coa serve`, asserts the handshake and the ki
   entry point, so the extension sets `COALESCE_UI_PATH` to that directory
   whenever it resolves to the shim. If the app has no usable copy, the
   notification suggests quitting Coalesce Desktop and the log has the detail.
+- The extension builds its own webview rather than calling the built-in
+  `simpleBrowser.show`: it needs the panel's `onDidDispose` event to know when
+  to kill the server.
 - The UI is framed in a webview. That works because `coa serve` sends no
   `X-Frame-Options` and no CSP `frame-ancestors`. If a future CLI build adds
   either, the frame will go blank and you would need `simpleBrowser`/external
@@ -186,10 +196,32 @@ npm run test:e2e   # spawns a real `coa serve`, asserts the handshake and the ki
 - `asExternalUri` + `portMapping` are used so the tab also works over Remote
   SSH / Codespaces; the `#nonce=` fragment is re-attached if the rewrite drops
   it.
-- On Windows the process is stopped with `taskkill /T /F` because `SIGTERM`
-  does not pass through the `.cmd` shim.
 - If the server exits on its own, the tab is closed and the error is surfaced
   with a link to the log.
+
+## Windows
+
+- `coa` installs as `coa.cmd`. Node's shell-less spawn reaches `CreateProcess`,
+  which appends `.exe` but never `.cmd`, and since Node 20.12 spawning a batch
+  file without a shell throws `EINVAL` outright — while `shell: true` would
+  hand cmd.exe its arguments unescaped. So the extension walks `PATHEXT`
+  itself and builds the `cmd.exe /d /s /c "…"` line with its own quoting, which
+  carries a workspace path like `C:\R&D\my repo` through intact. A `%` in the
+  path is the one thing cmd.exe cannot be stopped from expanding.
+- The server is stopped with `taskkill /T /F`: `SIGTERM` does not reach the node
+  process behind the `.cmd` shim, and there is a cmd.exe parent in the tree too.
+- The Desktop shim is looked for as `coa.cmd`, `coa.exe`, `coa.bat` or `coa`,
+  and paths are compared case-insensitively, so a hand-typed
+  `coalesceServe.coaPath` still registers as the shim.
+- `~/.coa/config` and `workspace.yml` keep whichever line ending they already
+  have, so changing one key in a CRLF checkout is a one-line diff rather than a
+  whole-file one. The atomic rename retries for a moment: on Windows it fails
+  while a search indexer or virus scanner still holds the target open.
+- POSIX file modes are advisory there — `chmod 0600` only clears the read-only
+  bit — so `%USERPROFILE%\.coa` is as protected as its NTFS ACL makes it and no
+  more.
+- `coa init` is handed to a terminal quoted for PowerShell, cmd.exe or a POSIX
+  shell, whichever `vscode.env.shell` reports.
 
 ## Icons
 

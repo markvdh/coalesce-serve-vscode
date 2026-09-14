@@ -15,6 +15,7 @@ const os = require('os');
 const path = require('path');
 
 const { ALL_PLATFORM_KEYS, platformKindOf } = require('./platforms');
+const { detectEol, chmodQuietly, writeAtomic } = require('./fsutil');
 
 const MAX_BACKUPS = 10;
 const FILE_MODE = 0o600;
@@ -45,14 +46,15 @@ function parse(text) {
   return sections;
 }
 
-function serialize(sections) {
+/** @param {string} eol the line ending the file already used — see read(). */
+function serialize(sections, eol = '\n') {
   const out = [];
   for (const section of sections) {
     if (section.name !== null) out.push(`[${section.name}]`);
     out.push(...section.lines);
   }
-  let text = out.join('\n');
-  if (!text.endsWith('\n')) text += '\n';
+  let text = out.join(eol);
+  if (!text.endsWith(eol)) text += eol;
   return text;
 }
 
@@ -97,7 +99,8 @@ function read(configPath = defaultConfigPath()) {
   } catch (err) {
     if (err.code !== 'ENOENT') throw err;
   }
-  return { configPath, sections: parse(text), existed: text !== '' };
+  // The eol travels with the model so a CRLF config does not come back as LF.
+  return { configPath, sections: parse(text), existed: text !== '', eol: detectEol(text) };
 }
 
 function backup(configPath) {
@@ -107,7 +110,7 @@ function backup(configPath) {
   let target = `${configPath}.bak.${stamp}`;
   for (let n = 1; fs.existsSync(target); n++) target = `${configPath}.bak.${stamp}-${String(n).padStart(3, '0')}`;
   fs.copyFileSync(configPath, target);
-  fs.chmodSync(target, FILE_MODE);
+  chmodQuietly(target, FILE_MODE);
   pruneBackups(configPath);
   return target;
 }
@@ -129,12 +132,9 @@ function pruneBackups(configPath) {
 }
 
 /** Atomic within the same directory, so the 0600 mode is never widened. */
-function write(configPath, sections) {
+function write(configPath, sections, eol = '\n') {
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
-  const tmp = `${configPath}.tmp.${process.pid}`;
-  fs.writeFileSync(tmp, serialize(sections), { mode: FILE_MODE });
-  fs.chmodSync(tmp, FILE_MODE);
-  fs.renameSync(tmp, configPath);
+  writeAtomic(configPath, serialize(sections, eol), FILE_MODE);
 }
 
 // ----------------------------------------------------------------- profiles

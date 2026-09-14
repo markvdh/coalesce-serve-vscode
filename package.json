@@ -14,7 +14,7 @@
   "icon": "media/icon.png",
   "main": "./extension.js",
   "scripts": {
-    "test": "node test/coaconfig.test.js && node test/workspaceyml.test.js && node test/serve.unit.test.js",
+    "test": "node test/fsutil.test.js && node test/coaconfig.test.js && node test/workspaceyml.test.js && node test/serve.unit.test.js",
     "test:e2e": "node test/serve.test.js"
   },
   "activationEvents": [],
@@ -198,7 +198,7 @@
         "coalesceServe.coaPath": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Path to the `coa` executable. Leave empty to auto-detect: the Coalesce Desktop shim (`~/.coalesce/desktop/coa`) is preferred, otherwise `coa` from `PATH`."
+          "markdownDescription": "Path to the `coa` executable. Leave empty to auto-detect: the Coalesce Desktop shim (`~/.coalesce/desktop/coa`, or `coa.cmd`/`coa.exe`/`coa.bat` on Windows) is preferred, otherwise `coa` from `PATH`."
         },
         "coalesceServe.port": {
           "type": "number",

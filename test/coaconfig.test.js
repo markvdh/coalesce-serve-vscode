@@ -45,6 +45,15 @@ test('round-trips an unmodified file byte for byte', () => {
   assert.strictEqual(cfg.serialize(cfg.parse(SAMPLE)), SAMPLE);
 });
 
+test('round-trips a CRLF file too, given the eol read() reports', () => {
+  const crlf = SAMPLE.replace(/\n/g, '\r\n');
+  assert.strictEqual(cfg.serialize(cfg.parse(crlf), '\r\n'), crlf);
+  const sections = cfg.parse(crlf);
+  cfg.upsertSection(sections, 'mark_demo', { snowflakeAccount: 'changed' });
+  const out = cfg.serialize(sections, '\r\n');
+  assert.ok(!/[^\r]\n/.test(out), 'every line ending stayed CRLF');
+});
+
 test('keeps comments and unknown lines outside the sections it rewrites', () => {
   const sections = cfg.parse(SAMPLE);
   cfg.upsertSection(sections, 'dela-poc', { platformKind: 'Databricks', databricksHost: 'https://new.example.com' });
@@ -145,13 +154,16 @@ test('writes atomically at mode 0600 and backs up the previous file', () => {
   const file = path.join(dir, 'config');
   fs.writeFileSync(file, SAMPLE, { mode: 0o600 });
 
-  const { sections } = cfg.read(file);
+  const { sections, eol } = cfg.read(file);
   cfg.upsertSection(sections, 'dela-poc', { platformKind: 'Databricks', databricksToken: 'rotated' });
   const backupPath = cfg.backup(file);
-  cfg.write(file, sections);
+  cfg.write(file, sections, eol);
 
-  assert.strictEqual(fs.statSync(file).mode & 0o777, 0o600, 'config stays owner-only');
-  assert.strictEqual(fs.statSync(backupPath).mode & 0o777, 0o600, 'backup is owner-only too');
+  // Windows has no POSIX mode; chmod there only toggles the read-only bit.
+  if (process.platform !== 'win32') {
+    assert.strictEqual(fs.statSync(file).mode & 0o777, 0o600, 'config stays owner-only');
+    assert.strictEqual(fs.statSync(backupPath).mode & 0o777, 0o600, 'backup is owner-only too');
+  }
   assert.strictEqual(fs.readFileSync(backupPath, 'utf8'), SAMPLE, 'backup holds the pre-write content');
   assert.strictEqual(cfg.entriesOf(cfg.findSection(cfg.read(file).sections, 'dela-poc')).databricksToken, 'rotated');
   assert.ok(!fs.readdirSync(dir).some((f) => f.includes('.tmp.')), 'no temp file left behind');

@@ -89,6 +89,18 @@ test('keeps a file that ends without a newline from growing one silently', () =>
   assert.strictEqual(ws.setProfile('locations: {}', 'x'), 'profile: x\nlocations: {}\n');
 });
 
+test('keeps CRLF line endings, so a Windows checkout is not a whole-file diff', () => {
+  const crlf = SAMPLE.replace(/\n/g, '\r\n');
+  assert.strictEqual(ws.profileOf(crlf), 'mark_demo', 'reading is oblivious to the line ending');
+  assert.strictEqual(ws.setProfile(crlf, 'dela-poc'), crlf.replace('profile: mark_demo', 'profile: dela-poc'));
+  assert.strictEqual(ws.setProfile(crlf, null), crlf.replace('profile: mark_demo\r\n', ''));
+  assert.strictEqual(
+    ws.setProfile('locations: {}\r\n', 'x'),
+    'profile: x\r\nlocations: {}\r\n',
+    'an inserted key uses the file’s own ending',
+  );
+});
+
 // ---------------------------------------------------------------------- i/o
 
 test('exists() is the "initialised for local development" check', () => {
@@ -107,7 +119,10 @@ test('writeProfile edits in place and preserves the file mode', () => {
 
   assert.strictEqual(ws.writeProfile(dir, 'dela-poc'), true);
   assert.strictEqual(ws.readProfile(dir), 'dela-poc');
-  assert.strictEqual(fs.statSync(file).mode & 0o777, 0o640, 'mode survives the rename');
+  // Windows has no POSIX mode to preserve — chmod there only toggles read-only.
+  if (process.platform !== 'win32') {
+    assert.strictEqual(fs.statSync(file).mode & 0o777, 0o640, 'mode survives the rename');
+  }
   assert.ok(!fs.readdirSync(dir).some((f) => f.includes('.tmp.')), 'no temp file left behind');
 
   assert.strictEqual(ws.writeProfile(dir, 'dela-poc'), false, 'an unchanged write does not touch the file');

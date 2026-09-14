@@ -95,5 +95,38 @@ assert.strictEqual(
   'an existing override is respected',
 );
 
+// ------------------------------------------------------------------- windows
+// These run on every host: the helpers are pure, and the Windows-only spawn
+// path is the one nobody developing on a Mac would otherwise exercise.
+
+assert.strictEqual(serve.quoteForCmd('serve'), 'serve', 'a plain argument is left bare');
+assert.strictEqual(serve.quoteForCmd(''), '""', 'an empty argument still needs to be an argument');
+assert.strictEqual(serve.quoteForCmd('C:\\R&D\\repo'), '"C:\\R&D\\repo"', 'quotes neutralise cmd metacharacters');
+assert.strictEqual(serve.quoteForCmd('C:\\my repo\\'), '"C:\\my repo\\\\"', 'a trailing backslash is doubled');
+assert.strictEqual(serve.quoteForCmd('say "hi"'), '"say \\"hi\\""', 'embedded quotes are escaped');
+
+const binDir = fs.mkdtempSync(path.join(os.tmpdir(), 'coabin-'));
+fs.writeFileSync(path.join(binDir, 'coa.cmd'), '@echo off\n', { mode: 0o755 });
+// Lower-case PATHEXT so the lookup is the same on a case-sensitive filesystem.
+const winEnv = { PATH: binDir, PATHEXT: '.exe;.cmd' };
+
+assert.strictEqual(
+  serve.resolveWindowsExecutable('coa', winEnv),
+  path.join(binDir, 'coa.cmd'),
+  'a bare `coa` on PATH resolves to the .cmd shim CreateProcess would miss',
+);
+assert.strictEqual(
+  serve.resolveWindowsExecutable(path.join(binDir, 'coa'), winEnv),
+  path.join(binDir, 'coa.cmd'),
+  'an extensionless explicit path gets the same treatment',
+);
+assert.strictEqual(
+  serve.resolveWindowsExecutable(path.join(binDir, 'coa.cmd'), winEnv),
+  path.join(binDir, 'coa.cmd'),
+  'a spelled-out path is taken as given',
+);
+assert.strictEqual(serve.resolveWindowsExecutable('nope', winEnv), null, 'nothing on PATH, nothing resolved');
+fs.rmSync(binDir, { recursive: true, force: true });
+
 fs.rmSync(home, { recursive: true, force: true });
 console.log('all assertions passed');
